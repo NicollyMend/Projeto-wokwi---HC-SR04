@@ -1,0 +1,48 @@
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+
+#define TRIG_PIN GPIO_NUM_2   // Defina o pino do Trigger
+#define ECHO_PIN GPIO_NUM_4   // Defina o pino do Echo
+
+void hcsr04_task(void *pvParameters) {
+    gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
+
+    while (1) {
+        // Envia um pulso de 10us no pino TRIG
+        gpio_set_level(TRIG_PIN, 0);
+        vTaskDelay(pdMS_TO_TICKS(2));
+        gpio_set_level(TRIG_PIN, 1);
+        esp_rom_delay_us(10);
+        gpio_set_level(TRIG_PIN, 0);
+
+        // Mede o tempo do pulso HIGH no ECHO com timeout
+        int64_t start_time = esp_timer_get_time();
+        int64_t timeout = start_time + 50000; // Timeout de 50ms para evitar loop infinito
+        while (gpio_get_level(ECHO_PIN) == 0 && esp_timer_get_time() < timeout);
+        start_time = esp_timer_get_time();
+
+        timeout = start_time + 50000;
+        while (gpio_get_level(ECHO_PIN) == 1 && esp_timer_get_time() < timeout);
+        int64_t end_time = esp_timer_get_time();
+
+        // Verifica se houve timeout
+        if (esp_timer_get_time() >= timeout) {
+            printf("Erro: Timeout na leitura do sensor\n");
+        } else {
+            // Calcula a distância
+            int64_t pulse_duration = end_time - start_time;
+            float distance = (pulse_duration * 0.0343) / 2; // Conversão do tempo para cm
+            printf("Distância: %.2f cm\n", distance);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000)); // Aguarda 1 segundo antes da próxima medição
+    }
+}
+
+void app_main() {
+    xTaskCreate(hcsr04_task, "hcsr04_task", 2048, NULL, 5, NULL);
+}
